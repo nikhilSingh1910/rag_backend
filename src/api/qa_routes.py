@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity
 from models.database import Document, DocumentEmbedding, engine
 from sqlalchemy.orm import sessionmaker
 from services.rag_service import RAGService
@@ -9,6 +10,7 @@ Session = sessionmaker(bind=engine)
 rag_service = RAGService()
 
 @qa_bp.route('/ask', methods=['POST'])
+@jwt_required()
 async def ask_question():
     try:
         data = request.get_json()
@@ -18,16 +20,20 @@ async def ask_question():
         if not question:
             return jsonify({'error': 'Question is required'}), 400
         
+        # Get current user ID from JWT
+        user_id = get_jwt_identity()
+        
         session = Session()
         
         # Get document embeddings
-        query = session.query(DocumentEmbedding)
+        query = session.query(DocumentEmbedding).join(Document).filter(Document.user_id == user_id)
         if document_ids:
             query = query.filter(DocumentEmbedding.document_id.in_(document_ids))
         
         embeddings = query.all()
         
         if not embeddings:
+            session.close()
             return jsonify({'error': 'No documents available for answering'}), 400
         
         # Prepare documents for RAG
@@ -54,10 +60,14 @@ async def ask_question():
         return jsonify({'error': str(e)}), 500
 
 @qa_bp.route('/documents', methods=['GET'])
+@jwt_required()
 async def get_available_documents():
     try:
+        # Get current user ID from JWT
+        user_id = get_jwt_identity()
+        
         session = Session()
-        documents = session.query(Document).all()
+        documents = session.query(Document).filter_by(user_id=user_id).all()
         result = [{
             'id': doc.id,
             'title': doc.title,
