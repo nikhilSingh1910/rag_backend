@@ -1,32 +1,28 @@
-from flask import Flask
-from flask_async import AsyncFlask
-from flask_jwt_extended import JWTManager
+from quart import Quart, jsonify
+from quart_jwt_extended import JWTManager
 from dotenv import load_dotenv
-from utils.logging_config import setup_logging
 import os
-import logging
+from utils.logging_config import setup_logging
+from api.auth_routes import auth_bp
+from api.document_routes import document_bp
+from api.qa_routes import qa_bp
+from api.health_routes import health_bp
 
 # Load environment variables
 load_dotenv()
 
 # Setup logging
 loggers = setup_logging()
-logger = logging.getLogger('api')
+logger = loggers['api']
 
-# Initialize Flask app with async support
-app = AsyncFlask(__name__)
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key')
-app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-jwt-secret-key')
+# Initialize Quart app
+app = Quart(__name__)
 
-# Initialize JWT
+# JWT configuration
+app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-secret-key')
 jwt = JWTManager(app)
 
-# Import and register blueprints
-from api.auth_routes import auth_bp
-from api.document_routes import document_bp
-from api.qa_routes import qa_bp
-from api.health_routes import health_bp
-
+# Register blueprints
 app.register_blueprint(auth_bp, url_prefix='/api/auth')
 app.register_blueprint(document_bp, url_prefix='/api/documents')
 app.register_blueprint(qa_bp, url_prefix='/api/qa')
@@ -35,14 +31,15 @@ app.register_blueprint(health_bp, url_prefix='/api')
 # Error handlers
 @app.errorhandler(404)
 async def not_found_error(error):
-    logger.warning(f"404 error: {str(error)}")
-    return {'error': 'Not found'}, 404
+    logger.warning(f"404 error: {error}")
+    return jsonify({'error': 'Not found'}), 404
 
 @app.errorhandler(500)
 async def internal_error(error):
-    logger.error(f"500 error: {str(error)}")
-    return {'error': 'Internal server error'}, 500
+    logger.error(f"500 error: {error}")
+    return jsonify({'error': 'Internal server error'}), 500
 
+# Middleware for logging
 @app.before_request
 async def log_request_info():
     logger.info(f"Request: {request.method} {request.url}")
@@ -53,5 +50,6 @@ async def log_response_info(response):
     return response
 
 if __name__ == '__main__':
-    logger.info("Starting RAG application")
-    app.run(debug=True) 
+    debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+    logger.info(f"Starting application in {'debug' if debug else 'production'} mode")
+    app.run(debug=debug) 

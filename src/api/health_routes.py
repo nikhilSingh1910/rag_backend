@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify
+from quart import Blueprint, jsonify
 from models.database import engine
 from sqlalchemy import text
 import psutil
@@ -30,8 +30,8 @@ async def detailed_health_check():
     """Detailed health check with system metrics"""
     try:
         # Check database connection
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
             db_status = "healthy"
     except Exception as e:
         logger.error(f"Database health check failed: {str(e)}")
@@ -67,8 +67,8 @@ async def readiness_check():
     """Readiness check for Kubernetes"""
     try:
         # Check database connection
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
             return jsonify({
                 'status': 'ready',
                 'timestamp': datetime.utcnow().isoformat()
