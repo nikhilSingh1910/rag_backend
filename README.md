@@ -1,1 +1,5 @@
-# rag_backend
+CodingExercise: Document ManagementandRAG-basedQ&AApplication
+CandidatesarerequiredtobuildanapplicationthatinvolvesbackendservicesandQCA features
+poweredbyaRetrieval-AugmentedGeneration(RAG)system.Theapplicationaimsto manageusers,
+documents,andaningestionprocessthatgeneratesembeddingsfordocument retrieval in a Q&A
+setting.
