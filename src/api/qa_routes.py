@@ -12,6 +12,8 @@ from utils.schemas import QuestionRequest, QuestionResponse, ErrorResponse
 import logging
 from typing import List, Dict
 import json
+import time
+from functools import wraps
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,8 +23,24 @@ qa_bp = Blueprint('qa', __name__)
 Session = sessionmaker(bind=engine)
 rag_service = RAGService()
 
+def log_performance(f):
+    @wraps(f)
+    async def decorated_function(*args, **kwargs):
+        start_time = time.time()
+        try:
+            response = await f(*args, **kwargs)
+            processing_time = time.time() - start_time
+            logger.info(f"Request processed in {processing_time:.2f} seconds")
+            return response
+        except Exception as e:
+            processing_time = time.time() - start_time
+            logger.error(f"Request failed after {processing_time:.2f} seconds: {str(e)}")
+            raise
+    return decorated_function
+
 @qa_bp.route('/ask', methods=['POST'])
 @jwt_required()
+@log_performance
 async def ask_question():
     try:
         # Validate request data
@@ -34,12 +52,13 @@ async def ask_question():
         
         session = Session()
         try:
-            # Get document embeddings
+            # Get document embeddings with optimized query
             query = session.query(DocumentEmbedding).join(Document).filter(Document.user_id == user_id)
             if question_request.document_ids:
                 query = query.filter(DocumentEmbedding.document_id.in_(question_request.document_ids))
             
-            embeddings = query.all()
+            # Use limit to prevent memory issues with large datasets
+            embeddings = query.limit(1000).all()
             
             if not embeddings:
                 raise DocumentNotFoundError("No documents available for answering")
@@ -54,14 +73,15 @@ async def ask_question():
             # Set up QA chain with selected documents
             await rag_service.setup_qa_chain(documents)
             
-            # Get answer
+            # Get answer with performance monitoring
             result = await rag_service.get_answer(question_request.question)
             
-            # Create response
+            # Create response with performance metrics
             response = QuestionResponse(
                 question=question_request.question,
                 answer=result["answer"],
-                relevant_documents=result["relevant_documents"]
+                relevant_documents=result["relevant_documents"],
+                processing_time=result.get("processing_time", 0)
             )
             
             return jsonify(response.dict()), 200
@@ -109,6 +129,7 @@ async def get_available_documents():
 
 @qa_bp.route('/similar', methods=['POST'])
 @jwt_required()
+@log_performance
 async def get_similar_chunks():
     try:
         # Validate request data
@@ -117,15 +138,17 @@ async def get_similar_chunks():
             raise ValidationError("Query is required")
         
         query = data['query']
-        k = data.get('k', 3)
+        k = min(data.get('k', 3), 10)  # Limit k to prevent performance issues
         
         # Get current user ID from JWT
         user_id = get_jwt_identity()
         
         session = Session()
         try:
-            # Get document embeddings
-            embeddings = session.query(DocumentEmbedding).join(Document).filter(Document.user_id == user_id).all()
+            # Get document embeddings with optimized query
+            embeddings = session.query(DocumentEmbedding).join(Document).filter(
+                Document.user_id == user_id
+            ).limit(1000).all()  # Limit to prevent memory issues
             
             if not embeddings:
                 raise DocumentNotFoundError("No documents available")
@@ -140,7 +163,7 @@ async def get_similar_chunks():
             # Set up QA chain
             await rag_service.setup_qa_chain(documents)
             
-            # Get similar chunks
+            # Get similar chunks with performance monitoring
             similar_chunks = await rag_service.get_similar_chunks(query, k=k)
             
             return jsonify(similar_chunks), 200
@@ -156,4 +179,15 @@ async def get_similar_chunks():
         return jsonify(ErrorResponse(error=str(e)).dict()), 404
     except Exception as e:
         logger.error(f"Error getting similar chunks: {str(e)}")
-        return jsonify(ErrorResponse(error="Failed to get similar chunks").dict()), 500 
+        return jsonify(ErrorResponse(error="Failed to get similar chunks").dict()), 500
+
+@qa_bp.route('/clear-cache', methods=['POST'])
+@jwt_required()
+async def clear_cache():
+    """Clear the RAG service cache"""
+    try:
+        rag_service.clear_cache()
+        return jsonify({"message": "Cache cleared successfully"}), 200
+    except Exception as e:
+        logger.error(f"Error clearing cache: {str(e)}")
+        return jsonify(ErrorResponse(error="Failed to clear cache").dict()), 500 

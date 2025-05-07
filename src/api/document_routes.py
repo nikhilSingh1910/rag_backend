@@ -13,6 +13,9 @@ from utils.schemas import DocumentCreate, DocumentResponse, ErrorResponse
 import logging
 from typing import List, Dict
 import json
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,11 +24,13 @@ logger = logging.getLogger(__name__)
 document_bp = Blueprint('document', __name__)
 Session = sessionmaker(bind=engine)
 rag_service = RAGService()
+executor = ThreadPoolExecutor(max_workers=4)  # For parallel document processing
 
 @document_bp.route('/upload', methods=['POST'])
 @jwt_required()
 async def upload_document():
     try:
+        start_time = time.time()
         # Validate request data
         data = request.get_json()
         document_data = DocumentCreate(**data)
@@ -47,20 +52,111 @@ async def upload_document():
             # Process document with RAG service
             chunk_embeddings = await rag_service.process_document(document_data.content)
             
-            # Save embeddings
-            for chunk in chunk_embeddings:
-                embedding = DocumentEmbedding(
-                    document_id=document.id,
-                    embedding=chunk['embedding'],
-                    chunk_text=chunk['chunk_text'],
-                    chunk_index=chunk['chunk_index']
-                )
-                session.add(embedding)
+            # Save embeddings in batches
+            batch_size = 100
+            for i in range(0, len(chunk_embeddings), batch_size):
+                batch = chunk_embeddings[i:i + batch_size]
+                embeddings = [
+                    DocumentEmbedding(
+                        document_id=document.id,
+                        embedding=chunk['embedding'],
+                        chunk_text=chunk['chunk_text'],
+                        chunk_index=chunk['chunk_index']
+                    ) for chunk in batch
+                ]
+                session.bulk_save_objects(embeddings)
+                session.commit()
             
-            session.commit()
+            processing_time = time.time() - start_time
+            logger.info(f"Document uploaded and processed in {processing_time:.2f} seconds")
             
             response = DocumentResponse.from_orm(document)
             return jsonify(response.dict()), 201
+            
+        except Exception as e:
+            session.rollback()
+            raise DatabaseError(f"Database error: {str(e)}")
+        finally:
+            session.close()
+            
+    except ValidationError as e:
+        logger.warning(f"Validation error: {str(e)}")
+        return jsonify(ErrorResponse(error=str(e)).dict()), 400
+    except DocumentProcessingError as e:
+        logger.error(f"Document processing error: {str(e)}")
+        return jsonify(ErrorResponse(error=str(e)).dict()), 500
+    except DatabaseError as e:
+        logger.error(f"Database error: {str(e)}")
+        return jsonify(ErrorResponse(error=str(e)).dict()), 500
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        return jsonify(ErrorResponse(error="Internal server error").dict()), 500
+
+@document_bp.route('/batch-upload', methods=['POST'])
+@jwt_required()
+async def batch_upload_documents():
+    try:
+        start_time = time.time()
+        # Validate request data
+        data = request.get_json()
+        if not isinstance(data, list):
+            raise ValidationError("Request body must be a list of documents")
+        
+        # Get current user ID from JWT
+        user_id = get_jwt_identity()
+        
+        session = Session()
+        try:
+            documents = []
+            for doc_data in data:
+                document_data = DocumentCreate(**doc_data)
+                
+                # Create document
+                document = Document(
+                    title=document_data.title,
+                    content=document_data.content,
+                    user_id=user_id
+                )
+                session.add(document)
+                documents.append(document)
+            
+            session.commit()
+            
+            # Process documents in parallel
+            async def process_document(doc):
+                try:
+                    chunk_embeddings = await rag_service.process_document(doc.content)
+                    return doc.id, chunk_embeddings
+                except Exception as e:
+                    logger.error(f"Error processing document {doc.id}: {str(e)}")
+                    return doc.id, None
+            
+            # Process documents concurrently
+            tasks = [process_document(doc) for doc in documents]
+            results = await asyncio.gather(*tasks)
+            
+            # Save embeddings in batches
+            for doc_id, chunk_embeddings in results:
+                if chunk_embeddings:
+                    batch_size = 100
+                    for i in range(0, len(chunk_embeddings), batch_size):
+                        batch = chunk_embeddings[i:i + batch_size]
+                        embeddings = [
+                            DocumentEmbedding(
+                                document_id=doc_id,
+                                embedding=chunk['embedding'],
+                                chunk_text=chunk['chunk_text'],
+                                chunk_index=chunk['chunk_index']
+                            ) for chunk in batch
+                        ]
+                        session.bulk_save_objects(embeddings)
+                        session.commit()
+            
+            processing_time = time.time() - start_time
+            logger.info(f"Batch upload completed in {processing_time:.2f} seconds")
+            
+            response = [DocumentResponse.from_orm(doc).dict() for doc in documents]
+            return jsonify(response), 201
             
         except Exception as e:
             session.rollback()
