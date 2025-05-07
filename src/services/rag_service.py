@@ -2,7 +2,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
-from langchain_community.llms import HuggingFaceHub
+from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
 import json
 from typing import List, Dict, Optional
@@ -10,6 +10,7 @@ import numpy as np
 import logging
 from functools import lru_cache
 import time
+from config.settings import settings
 from utils.exceptions import (
     DocumentProcessingError,
     EmbeddingGenerationError,
@@ -17,7 +18,10 @@ from utils.exceptions import (
 )
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=getattr(logging, settings.log_level),
+    format=settings.log_format
+)
 logger = logging.getLogger(__name__)
 
 class RAGService:
@@ -25,28 +29,28 @@ class RAGService:
         try:
             # Initialize the embedding model with caching
             self.embeddings = HuggingFaceEmbeddings(
-                model_name="sentence-transformers/all-MiniLM-L6-v2",
-                model_kwargs={'device': 'cpu'},
-                encode_kwargs={'normalize_embeddings': True}
+                model_name=settings.embedding_model_name,
+                model_kwargs={'device': settings.embedding_device},
+                encode_kwargs={'normalize_embeddings': settings.embedding_normalize}
             )
             
             # Initialize text splitter with optimized parameters for better chunking
             self.text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1000,
-                chunk_overlap=200,
+                chunk_size=settings.rag_chunk_size,
+                chunk_overlap=settings.rag_chunk_overlap,
                 length_function=len,
                 separators=["\n\n", "\n", " ", ""]
             )
             
-            # Initialize LLM with optimized parameters
-            self.llm = HuggingFaceHub(
-                repo_id="google/flan-t5-base",
-                model_kwargs={
-                    "temperature": 0.5,
-                    "max_length": 512,
-                    "top_p": 0.95,
-                    "do_sample": True
-                }
+            # Initialize OpenAI GPT-4 with optimized parameters
+            self.llm = ChatOpenAI(
+                api_key=settings.openai_api_key,
+                model_name=settings.openai_model_name,
+                temperature=settings.openai_temperature,
+                max_tokens=settings.openai_max_tokens,
+                top_p=settings.openai_top_p,
+                frequency_penalty=settings.openai_frequency_penalty,
+                presence_penalty=settings.openai_presence_penalty
             )
             
             # Custom prompt template for better answers
@@ -70,7 +74,7 @@ class RAGService:
             logger.error(f"Error initializing RAGService: {str(e)}")
             raise DocumentProcessingError(f"Failed to initialize RAG service: {str(e)}")
 
-    @lru_cache(maxsize=1000)
+    @lru_cache(maxsize=settings.rag_cache_size)
     async def process_document(self, content: str) -> List[Dict]:
         """Process a document and return chunks with embeddings"""
         try:
@@ -87,7 +91,7 @@ class RAGService:
             
             # Generate embeddings for each chunk with batch processing
             chunk_embeddings = []
-            batch_size = 32  # Process in batches for better performance
+            batch_size = settings.rag_batch_size  # Process in batches for better performance
             
             for i in range(0, len(chunks), batch_size):
                 batch = chunks[i:i + batch_size]
@@ -158,7 +162,7 @@ class RAGService:
                 retriever=self.vector_store.as_retriever(
                     search_kwargs={
                         "k": k,
-                        "score_threshold": 0.5
+                        "score_threshold": settings.rag_similarity_threshold
                     }
                 ),
                 return_source_documents=True,
@@ -205,7 +209,7 @@ class RAGService:
             docs = self.vector_store.similarity_search_with_score(
                 query,
                 k=k,
-                score_threshold=0.5
+                score_threshold=settings.rag_similarity_threshold
             )
             
             results = [{

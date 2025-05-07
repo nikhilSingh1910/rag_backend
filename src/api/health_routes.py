@@ -5,9 +5,13 @@ import psutil
 import os
 from datetime import datetime
 import logging
+from config.settings import settings
 
 health_bp = Blueprint('health', __name__)
 logger = logging.getLogger('api')
+
+# Configure logging
+logging.basicConfig(level=getattr(logging, settings.log_level))
 
 @health_bp.route('/health', methods=['GET'])
 async def health_check():

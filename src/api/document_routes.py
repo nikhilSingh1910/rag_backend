@@ -10,6 +10,7 @@ from utils.exceptions import (
     DatabaseError
 )
 from utils.schemas import DocumentCreate, DocumentResponse, ErrorResponse
+from config.settings import settings
 import logging
 from typing import List, Dict
 import json
@@ -18,13 +19,13 @@ from concurrent.futures import ThreadPoolExecutor
 import time
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=getattr(logging, settings.log_level))
 logger = logging.getLogger(__name__)
 
 document_bp = Blueprint('document', __name__)
 Session = sessionmaker(bind=engine)
 rag_service = RAGService()
-executor = ThreadPoolExecutor(max_workers=4)  # For parallel document processing
+executor = ThreadPoolExecutor(max_workers=settings.rag_batch_size)
 
 @document_bp.route('/upload', methods=['POST'])
 @jwt_required()

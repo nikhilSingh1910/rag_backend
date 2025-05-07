@@ -2,6 +2,7 @@ import logging
 import logging.handlers
 import os
 from datetime import datetime
+from config.settings import settings
 
 def setup_logging():
     # Create logs directory if it doesn't exist
@@ -11,12 +12,10 @@ def setup_logging():
 
     # Configure root logger
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
+    root_logger.setLevel(getattr(logging, settings.log_level))
 
     # Create formatters
-    file_formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+    file_formatter = logging.Formatter(settings.log_format)
     console_formatter = logging.Formatter(
         '%(asctime)s - %(levelname)s - %(message)s'
     )
@@ -28,7 +27,7 @@ def setup_logging():
         backupCount=5
     )
     all_handler.setFormatter(file_formatter)
-    all_handler.setLevel(logging.INFO)
+    all_handler.setLevel(getattr(logging, settings.log_level))
 
     # File handler for errors
     error_handler = logging.handlers.RotatingFileHandler(
@@ -42,7 +41,7 @@ def setup_logging():
     # Console handler
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(console_formatter)
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(getattr(logging, settings.log_level))
 
     # Add handlers to root logger
     root_logger.addHandler(all_handler)
@@ -59,6 +58,6 @@ def setup_logging():
 
     # Set levels for component loggers
     for logger in loggers.values():
-        logger.setLevel(logging.INFO)
+        logger.setLevel(getattr(logging, settings.log_level))
 
     return loggers 

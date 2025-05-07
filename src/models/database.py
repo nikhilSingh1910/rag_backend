@@ -2,11 +2,14 @@ from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, F
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
-import os
+from config.settings import settings
 
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/rag_db')
-
-engine = create_engine(DATABASE_URL)
+engine = create_engine(
+    settings.database_url,
+    pool_size=settings.database_pool_size,
+    max_overflow=settings.database_max_overflow,
+    pool_timeout=settings.database_pool_timeout
+)
 Base = declarative_base()
 
 class User(Base):

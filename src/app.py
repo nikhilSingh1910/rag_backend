@@ -1,15 +1,11 @@
-from quart import Quart, jsonify
+from quart import Quart, jsonify, request
 from quart_jwt_extended import JWTManager
-from dotenv import load_dotenv
-import os
+from config.settings import settings
 from utils.logging_config import setup_logging
 from api.auth_routes import auth_bp
 from api.document_routes import document_bp
 from api.qa_routes import qa_bp
 from api.health_routes import health_bp
-
-# Load environment variables
-load_dotenv()
 
 # Setup logging
 loggers = setup_logging()
@@ -19,7 +15,9 @@ logger = loggers['api']
 app = Quart(__name__)
 
 # JWT configuration
-app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-secret-key')
+app.config['JWT_SECRET_KEY'] = settings.jwt_secret_key
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = settings.jwt_access_token_expires
+app.config['JWT_REFRESH_TOKEN_EXPIRES'] = settings.jwt_refresh_token_expires
 jwt = JWTManager(app)
 
 # Register blueprints
@@ -50,6 +48,6 @@ async def log_response_info(response):
     return response
 
 if __name__ == '__main__':
-    debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+    debug = settings.flask_debug
     logger.info(f"Starting application in {'debug' if debug else 'production'} mode")
     app.run(debug=debug) 

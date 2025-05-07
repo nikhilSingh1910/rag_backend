@@ -9,6 +9,7 @@ from utils.exceptions import (
     ValidationError
 )
 from utils.schemas import QuestionRequest, QuestionResponse, ErrorResponse
+from config.settings import settings
 import logging
 from typing import List, Dict
 import json
@@ -16,7 +17,7 @@ import time
 from functools import wraps
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=getattr(logging, settings.log_level))
 logger = logging.getLogger(__name__)
 
 qa_bp = Blueprint('qa', __name__)

@@ -4,6 +4,7 @@ from sqlalchemy.orm import sessionmaker
 import bcrypt
 from email_validator import validate_email, EmailNotValidError
 from datetime import timedelta
+from config.settings import settings
 
 Session = sessionmaker(bind=engine)
 
@@ -33,7 +34,7 @@ class AuthService:
             # Generate access token
             access_token = create_access_token(
                 identity=user.id,
-                expires_delta=timedelta(days=1)
+                expires_delta=timedelta(seconds=settings.jwt_access_token_expires)
             )
             
             session.close()
